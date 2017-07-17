@@ -12,10 +12,10 @@ func TestSpecCreateTransaction(t *testing.T) {
 	Convey("Scenario: Creating a transaction", t, func() {
 		Convey("Given I've a valid transaction", func() {
 			transaction := domain.Transaction{
-				Name:      "Golpher Shampoo",
-				Amount:    -10,
-				Date:      time.Now(),
-				FundingID: "pet-account",
+				Description: "Golpher Shampoo",
+				Amount:      -10,
+				Date:        time.Now(),
+				FundingID:   "pet-account",
 			}
 
 			Convey("When I create the transaction", func() {
