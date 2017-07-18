@@ -1,0 +1,11 @@
+language: go
+go: 
+ - 1.8.3
+
+install:
+- go get -t -v ./...
+- go get -u github.com/golang/lint/golint
+
+script:
+ - golint ./...
+ - go test -v ./...
