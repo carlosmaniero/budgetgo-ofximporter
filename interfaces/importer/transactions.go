@@ -3,6 +3,7 @@ package importer
 import (
 	"errors"
 	"io"
+	"sync"
 
 	"github.com/carlosmaniero/budgetgo-ofximporter/domain"
 	"github.com/carlosmaniero/ofx"
@@ -34,16 +35,20 @@ func (importer *TransactionOfxImporter) Parse() *TransactionIterator {
 type TransactionIterator struct {
 	transactions []*ofx.Transaction
 	current      int
+	mux          sync.Mutex
 }
 
 // Next returns the next transaction
 func (iterator *TransactionIterator) Next(transaction *domain.Transaction) error {
-	if iterator.current >= len(iterator.transactions) {
+	iterator.mux.Lock()
+	if !iterator.HasNext() {
+		iterator.mux.Unlock()
 		return ErrNoMoreTransaction
 	}
 
 	iterator.ofxToTransaction(transaction, iterator.transactions[iterator.current])
 	iterator.current++
+	iterator.mux.Unlock()
 
 	return nil
 }
@@ -56,6 +61,14 @@ func (iterator *TransactionIterator) HasNext() bool {
 // Count returns the total of transactions
 func (iterator *TransactionIterator) Count() int {
 	return len(iterator.transactions)
+}
+
+// Remaining returns the total of transactions
+func (iterator *TransactionIterator) Remaining() int {
+	iterator.mux.Lock()
+	remaining := iterator.Count() - iterator.current
+	iterator.mux.Unlock()
+	return remaining
 }
 
 func (iterator *TransactionIterator) ofxToTransaction(transaction *domain.Transaction, ofxTransaction *ofx.Transaction) {
