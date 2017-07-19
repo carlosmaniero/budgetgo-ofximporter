@@ -7,16 +7,7 @@ import (
 // TransactionIterator contains all transactions usecases
 type TransactionIterator struct {
 	Repository       TransactionRepository
-	FundingID        string
 	ConcurrencyLevel int
-}
-
-func (iterator *TransactionIterator) getConcurrentyLevel() int {
-	if iterator.ConcurrencyLevel == 0 {
-		return 100
-	}
-
-	return iterator.ConcurrencyLevel
 }
 
 // Register one transaction inside the repository
@@ -24,49 +15,14 @@ func (iterator *TransactionIterator) Register(transaction *domain.Transaction) e
 	return iterator.Repository.Store(transaction)
 }
 
-func (iterator *TransactionIterator) registerAsync(total int, transactions TransactionList, sent chan bool) {
-	for i := 0; i < total; i++ {
-		go func() {
-			transaction := domain.Transaction{}
-
-			if err := transactions.Next(&transaction); err == nil {
-				transaction.FundingID = iterator.FundingID
-				iterator.Register(&transaction)
-			}
-
-			sent <- true
-		}()
+// RegisterAsync will register many transactions
+func (iterator *TransactionIterator) RegisterAsync(list TransactionList, fundingID string, concorrencyLevel int) {
+	control := transactionRegisterAsyncControl{
+		iterator:  iterator,
+		list:      list,
+		fundingID: fundingID,
 	}
-}
-
-func (iterator *TransactionIterator) waitForTransactions(total int, sent chan bool) {
-	totalSented := 0
-	for {
-		<-sent
-		totalSented++
-
-		if totalSented == total {
-			return
-		}
-	}
-}
-
-// RegisterMany will register many transactions
-func (iterator *TransactionIterator) RegisterMany(list TransactionList) {
-	sent := make(chan bool, iterator.getConcurrentyLevel())
-	totalSent := 0
-
-	for list.HasNext() {
-		toSend := iterator.getConcurrentyLevel()
-
-		if toSend > list.Remaining() {
-			toSend = list.Remaining()
-		}
-
-		iterator.registerAsync(toSend, list, sent)
-		iterator.waitForTransactions(toSend, sent)
-		totalSent += iterator.getConcurrentyLevel()
-	}
+	control.start()
 }
 
 // TransactionRepository is the place where transactions are stored
@@ -80,4 +36,60 @@ type TransactionList interface {
 	Next(*domain.Transaction) error
 	Count() int
 	Remaining() int
+}
+
+type transactionRegisterAsyncControl struct {
+	list             TransactionList
+	fundingID        string
+	sent             chan bool
+	completed        int
+	concurrencyLevel int
+	iterator         *TransactionIterator
+}
+
+func (control *transactionRegisterAsyncControl) register(processes int) {
+	for i := 0; i < processes; i++ {
+		go func() {
+			transaction := domain.Transaction{}
+
+			if err := control.list.Next(&transaction); err == nil {
+				transaction.FundingID = control.fundingID
+				if err := control.iterator.Register(&transaction); err != nil {
+					panic(err)
+				}
+			}
+
+			control.sent <- true
+		}()
+	}
+}
+
+func (control *transactionRegisterAsyncControl) getConcurrentyLevel() int {
+	if count := control.list.Count(); count < control.concurrencyLevel {
+		return count
+	}
+	if control.concurrencyLevel == 0 {
+		return 100
+	}
+	return control.concurrencyLevel
+}
+
+func (control *transactionRegisterAsyncControl) isFinished() bool {
+	return control.completed == control.list.Count()
+}
+
+func (control *transactionRegisterAsyncControl) start() {
+	control.sent = make(chan bool, control.getConcurrentyLevel())
+	control.register(control.getConcurrentyLevel())
+
+	for {
+		<-control.sent
+		control.completed++
+
+		if control.isFinished() {
+			return
+		} else if control.list.HasNext() {
+			control.register(1)
+		}
+	}
 }

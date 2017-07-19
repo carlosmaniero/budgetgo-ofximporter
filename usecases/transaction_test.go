@@ -58,7 +58,7 @@ func TestSpecCreateTransaction(t *testing.T) {
 				iterator := TransactionIterator{
 					Repository: &repository,
 				}
-				iterator.RegisterMany(&transactionList)
+				iterator.RegisterAsync(&transactionList, "pet-account", 100)
 
 				Convey("Then all transactions was got", func() {
 					So(transactionList.Remaining(), ShouldEqual, 0)
